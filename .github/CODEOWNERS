@@ -1,0 +1,12 @@
+# Default owner for the frontend repository
+* @elouadiaicha
+
+# Angular application
+/src/ @elouadiaicha
+
+# GitHub Actions and repository automation
+/.github/ @elouadiaicha
+
+# Frontend configuration
+/angular.json @elouadiaicha
+/package.json @elouadiaicha
