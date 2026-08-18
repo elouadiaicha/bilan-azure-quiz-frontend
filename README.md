@@ -1,54 +1,223 @@
-# azure-quiz-frontend
+# Azure Quiz - Frontend
 
-Angular application to review Microsoft certifications (AZ-900 to start, AZ-104 next): review by
-module or mock exam, accessible from a simple link (no account). Consumes the REST API of
-[azure-quiz-backend](../azure-quiz-backend).
+Frontend Angular de l'application **Azure Quiz**, permettant de réviser les certifications Microsoft Azure à travers des modules et des examens blancs.
 
+L'application est déployée dans un environnement **non-production Azure** et communique avec une API REST Spring Boot hébergée sur Azure App Service.
 
-## Stack
+## URL non-production
 
-- Angular 22 (standalone components, signals), Angular Material, ngx-translate (fr/en)
-- Vitest (Angular CLI 22 native test runner)
-- ESLint (`angular-eslint`) + Prettier, husky + lint-staged on pre-commit
+Application :
 
-## Run locally
+https://gentle-moss-091704803.7.azurestaticapps.net
 
-Prerequisites: Node 22+, and the backend (`azure-quiz-backend`) running on `http://localhost:8080`.
+Le frontend est hébergé sur **Azure Static Web Apps**.
+
+## Stack technique
+
+- Angular 22
+- Angular Material
+- ngx-translate (fr/en)
+- TypeScript
+- Vitest
+- ESLint (`angular-eslint`)
+- Prettier
+- Husky
+- GitHub Actions
+- Azure Static Web Apps
+
+## Architecture applicative
+
+```text
+                    Internet
+                       |
+                       v
+          +---------------------------+
+          | Azure Static Web Apps     |
+          | Frontend Angular          |
+          +---------------------------+
+                       |
+                       | HTTPS / REST
+                       | API Key + CORS
+                       v
+          +---------------------------+
+          | Azure App Service         |
+          | Backend Spring Boot       |
+          +---------------------------+
+                       |
+             +---------+---------+
+             |         |         |
+             v         v         v
+        PostgreSQL    Redis    Storage
+```
+
+Le navigateur accède uniquement au frontend Angular.
+
+Le frontend communique ensuite avec l'API REST du backend Spring Boot.
+
+Le backend est protégé au niveau applicatif par :
+
+- une clé API partagée ;
+- une politique CORS limitée à l'origine du frontend Azure Static Web Apps.
+
+L'infrastructure Azure est provisionnée séparément avec Terraform dans le dépôt d'infrastructure.
+
+## Structure du projet
+
+- `src/app/core` : modèles et services communs.
+- `src/app/features/certifications` : sélection des certifications.
+- `src/app/features/modules` : affichage des modules et lancement des examens.
+- `src/app/features/quiz` : déroulement des questions.
+- `src/app/features/results` : affichage des résultats.
+- `src/environments` : configuration des environnements Angular.
+- `.github/workflows` : pipeline CI/CD.
+- `.husky` : hooks Git de contrôle qualité.
+
+## Exécution locale
+
+### Prérequis
+
+- Node.js 22+
+- npm
+- backend Azure Quiz lancé localement sur `http://localhost:8080`
+
+Installation :
 
 ```bash
 npm install
-npm start   # http://localhost:4200, targets the API on localhost:8080 (see src/environments/environment.development.ts)
 ```
 
-## Tests and quality
+Démarrage :
 
 ```bash
-npm test           # Vitest
+npm start
+```
+
+L'application est alors disponible sur :
+
+```text
+http://localhost:4200
+```
+
+L'environnement de développement utilise :
+
+```text
+http://localhost:8080/api
+```
+
+comme URL du backend.
+
+## Tests et qualité
+
+Les commandes principales sont :
+
+```bash
+npm test
 npm run test:coverage
 npm run lint
 npm run format:check
 ```
 
-## Production build
+### Pre-commit
+
+Le projet utilise **Husky**.
+
+Avant un commit, le hook `.husky/pre-commit` exécute automatiquement :
+
+```bash
+npm run lint
+npm run test
+```
+
+Un commit est bloqué si le lint ou les tests échouent.
+
+## Build de production
 
 ```bash
 npm run build:prod
 ```
 
-Static output in `dist/azure-quiz-frontend/browser` (that's the folder to point to as
-`output_location` when deploying to Azure Static Web Apps).
+Les fichiers statiques sont générés dans :
 
-Before building for a real deployment, update `src/environments/environment.ts` with the deployed
-backend API URL (`apiBaseUrl`).
+```text
+dist/azure-quiz-frontend/browser
+```
 
+Ce répertoire est ensuite déployé sur Azure Static Web Apps.
 
-## Structure
+## CI/CD
 
-- `src/app/core` — models, services (`QuizApiService` for REST calls, `QuizSessionStore` for
-  signal-based quiz session state)
-- `src/app/features` — pages: `certifications` (home), `modules` (a certification's modules +
-  starting a mock exam), `quiz` (question-by-question flow), `results` (final score)
+Le déploiement est automatisé avec **GitHub Actions**.
 
-## Out of scope for this repo
+Workflow :
 
-- Provisioning the Azure infrastructure (Static Web App, App Service, database).
+```text
+.github/workflows/swa-deploy.yml
+```
+
+Le pipeline réalise notamment les opérations suivantes :
+
+1. récupération du code ;
+2. authentification auprès d'Azure avec **OIDC** ;
+3. identification des ressources Azure nécessaires ;
+4. récupération de la configuration du backend ;
+5. injection de l'URL de l'API et de la clé API lors du build ;
+6. build Angular de production ;
+7. déploiement des artefacts sur Azure Static Web Apps.
+
+Les identifiants Azure ne sont pas stockés directement dans le code.
+
+L'authentification GitHub Actions → Azure utilise une **Federated Credential OIDC**.
+
+## Environnements de déploiement
+
+Les branches de développement peuvent être déployées dans des environnements de preview Azure Static Web Apps.
+
+La branche :
+
+```text
+main
+```
+
+alimente l'environnement non-production principal.
+
+## Sécurité et gouvernance
+
+Le dépôt met en œuvre plusieurs mécanismes de qualité et de sécurité :
+
+- commits signés et vérifiés (`Verified`) ;
+- `CODEOWNERS` ;
+- Dependabot pour les dépendances npm et GitHub Actions ;
+- Husky pour les contrôles pre-commit ;
+- ESLint ;
+- Prettier ;
+- tests automatisés ;
+- authentification Azure par OIDC.
+
+Aucun secret applicatif réel ne doit être committé dans le dépôt.
+
+## Gestion des dépendances
+
+Dependabot est configuré dans :
+
+```text
+.github/dependabot.yml
+```
+
+Il surveille :
+
+- les dépendances npm ;
+- les GitHub Actions utilisées par les workflows.
+
+## Dépôts du projet
+
+Le projet est séparé en trois dépôts :
+
+```text
+bilan-azure-quiz-frontend
+bilan-azure-quiz-backend
+bilan-azure-quiz-terraform
+```
+
+Ce dépôt contient uniquement le frontend Angular.
+
+La création et la configuration des ressources Azure sont gérées dans le dépôt Terraform.
