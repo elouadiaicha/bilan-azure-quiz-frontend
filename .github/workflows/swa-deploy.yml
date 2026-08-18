@@ -1,0 +1,141 @@
+name: Frontend CI/CD - Azure Static Web Apps
+
+on:
+  push:
+    branches:
+      - main
+      - feature/frontend-azure
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Find backend App Service by tags
+        id: backend
+        shell: bash
+        run: |
+          BACKEND_NAME=$(az resource list \
+            --query "[?type=='Microsoft.Web/sites' && tags.Owner=='aelouadi' && tags.Project=='Azure-Quiz'].name | [0]" \
+            --output tsv)
+
+          if [ -z "$BACKEND_NAME" ]; then
+            echo "Backend App Service not found"
+            exit 1
+          fi
+
+          BACKEND_HOST=$(az webapp show \
+            --resource-group aelouadiRG \
+            --name "$BACKEND_NAME" \
+            --query defaultHostName \
+            --output tsv)
+
+          BACKEND_API_KEY=$(az webapp config appsettings list \
+            --resource-group aelouadiRG \
+            --name "$BACKEND_NAME" \
+            --query "[?name=='BACKEND_API_KEY'].value | [0]" \
+            --output tsv)
+
+          echo "::add-mask::$BACKEND_API_KEY"
+
+          echo "BACKEND_API_URL=https://${BACKEND_HOST}/api" >> "$GITHUB_ENV"
+          echo "BACKEND_API_KEY=$BACKEND_API_KEY" >> "$GITHUB_ENV"
+
+          echo "Backend found: $BACKEND_NAME"
+          echo "Backend URL: https://${BACKEND_HOST}/api"
+
+      - name: Inject backend configuration
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path("src/environments/environment.ts")
+          content = path.read_text(encoding="utf-8")
+
+          content = content.replace(
+              "https://REPLACE_WITH_PROD_API_URL/api",
+              os.environ["BACKEND_API_URL"]
+          )
+
+          content = content.replace(
+              "__BACKEND_API_KEY__",
+              os.environ.get("BACKEND_API_KEY", "")
+          )
+
+          path.write_text(content, encoding="utf-8")
+          PY
+
+      - name: Build Angular production
+        run: npm run build:prod
+
+      - name: Find Static Web App by tags
+        id: swa
+        shell: bash
+        run: |
+          SWA_NAME=$(az resource list \
+            --query "[?type=='Microsoft.Web/staticSites' && tags.Owner=='aelouadi' && tags.Project=='Azure-Quiz'].name | [0]" \
+            --output tsv)
+
+          if [ -z "$SWA_NAME" ]; then
+            echo "Static Web App not found"
+            exit 1
+          fi
+
+          SWA_TOKEN=$(az staticwebapp secrets list \
+            --resource-group aelouadiRG \
+            --name "$SWA_NAME" \
+            --query "properties.apiKey" \
+            --output tsv)
+
+          if [ -z "$SWA_TOKEN" ]; then
+            echo "Static Web App deployment token not found"
+            exit 1
+          fi
+
+          echo "::add-mask::$SWA_TOKEN"
+          echo "token=$SWA_TOKEN" >> "$GITHUB_OUTPUT"
+
+          echo "Static Web App found: $SWA_NAME"
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swa.outputs.token }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: "dist/azure-quiz-frontend/browser"
+          api_location: ""
+          output_location: ""
+          skip_app_build: true
